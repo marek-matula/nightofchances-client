@@ -1,119 +1,154 @@
+#include <iostream>
 #include <windows.h> 
-#include <stdio.h>
-#include <conio.h>
-#include <tchar.h>
+#include <vector>
+#include <string>
 
 #define BUFSIZE 512
 
-int _tmain(int argc, TCHAR* argv[])
+class ClientConnection 
 {
-    HANDLE hPipe;
-    LPCWSTR lpvMessage = L"Default message from client.";
-    TCHAR  chBuf[BUFSIZE];
-    BOOL   fSuccess = FALSE;
-    DWORD  cbRead, cbToWrite, cbWritten, dwMode;
-    LPCWSTR lpszPipename = L"\\\\.\\pipe\\mynamedpipe";
+private:
+    HANDLE m_Pipe = nullptr;
+    std::wstring m_PipeName;
+    DWORD m_PipeMode = PIPE_READMODE_MESSAGE;     // TODO remove
+    std::vector<char> m_receiveBuffer;
 
-    if (argc > 1)
-        lpvMessage = argv[1];
-
-    // Try to open a named pipe; wait for it, if necessary. 
-
-    while (1)
+public:
+    ClientConnection(std::wstring pipeName = L"\\\\.\\pipe\\mynamedpipe"): m_PipeName(pipeName)
     {
-        hPipe = CreateFile(
-            lpszPipename,   // pipe name 
-            GENERIC_READ |  // read and write access 
-            GENERIC_WRITE,
-            0,              // no sharing 
-            NULL,           // default security attributes
-            OPEN_EXISTING,  // opens existing pipe 
-            0,              // default attributes 
-            NULL);          // no template file 
+        m_receiveBuffer.resize(BUFSIZE);
+    };
 
-      // Break if the pipe handle is valid. 
+    ~ClientConnection()
+    {
+        if(m_Pipe)
+            CloseHandle(m_Pipe);
+    }
 
-        if (hPipe != INVALID_HANDLE_VALUE)
-            break;
-
-        // Exit if an error other than ERROR_PIPE_BUSY occurs. 
-
-        if (GetLastError() != ERROR_PIPE_BUSY)
+    bool ConnectToServer()
+    {
+        // Try to open a named pipe; wait for it, if necessary. 
+        while (1)
         {
-            _tprintf(TEXT("Could not open pipe. GLE=%d\n"), GetLastError());
-            return -1;
+            m_Pipe = CreateFile(
+                m_PipeName.c_str(),   // pipe name 
+                GENERIC_READ |  // read and write access 
+                GENERIC_WRITE,
+                0,              // no sharing 
+                nullptr,           // default security attributes
+                OPEN_EXISTING,  // opens existing pipe 
+                0,              // default attributes 
+                nullptr);          // no template file 
+                                
+            // Break if the pipe handle is valid. 
+            if (m_Pipe != INVALID_HANDLE_VALUE)
+                break;
+
+            // Exit if an error other than ERROR_PIPE_BUSY occurs. 
+
+            if (GetLastError() != ERROR_PIPE_BUSY)
+            {
+                std::cerr << "Could not open pipe. GLE= " << GetLastError() << "\n";
+                return false;
+            }
+
+            // All pipe instances are busy, so wait for 20 seconds. 
+
+            if (!WaitNamedPipe(m_PipeName.c_str(), 20000))
+            {
+                std::cerr << "Could not open pipe: 20 second wait timed out." << "\n";
+                return false;
+            }
         }
 
-        // All pipe instances are busy, so wait for 20 seconds. 
-
-        if (!WaitNamedPipe(lpszPipename, 20000))
+        // The pipe connected; change to message-read mode. 
+        if(!SetNamedPipeHandleState(
+            m_Pipe,    // pipe handle 
+            &m_PipeMode,  // new pipe mode 
+            nullptr,     // don't set maximum bytes 
+            nullptr)    // don't set maximum time
+            )
         {
-            printf("Could not open pipe: 20 second wait timed out.");
-            return -1;
+            std::cerr<<"SetNamedPipeHandleState failed. GLE= " << "\n";;
+            return false;
         }
+
+        return true;
     }
 
-    // The pipe connected; change to message-read mode. 
-
-    dwMode = PIPE_READMODE_MESSAGE;
-    fSuccess = SetNamedPipeHandleState(
-        hPipe,    // pipe handle 
-        &dwMode,  // new pipe mode 
-        NULL,     // don't set maximum bytes 
-        NULL);    // don't set maximum time 
-    if (!fSuccess)
+    bool Send(const std::vector<char>& buffer)
     {
-        _tprintf(TEXT("SetNamedPipeHandleState failed. GLE=%d\n"), GetLastError());
-        return -1;
+        if (!m_Pipe)
+            return false;
+
+        DWORD cbWritten;
+        if(!WriteFile(
+            m_Pipe,                  // pipe handle 
+            buffer.data(),             // message 
+            (buffer.size()) * sizeof(char),// message length 
+            &cbWritten,             // bytes written 
+            nullptr)                  // not overlapped 
+        )
+        {
+            std::cerr<< "WriteFile to pipe failed. GLE=%d" << "\n";
+            return false;
+        }
+        return true;
     }
 
-    // Send a message to the pipe server. 
-
-    cbToWrite = (lstrlen(lpvMessage) + 1) * sizeof(TCHAR);
-    _tprintf(TEXT("Sending %d byte message: \"%s\"\n"), cbToWrite, lpvMessage);
-
-    fSuccess = WriteFile(
-        hPipe,                  // pipe handle 
-        lpvMessage,             // message 
-        cbToWrite,              // message length 
-        &cbWritten,             // bytes written 
-        NULL);                  // not overlapped 
-
-    if (!fSuccess)
+    std::vector<char> Receive()
     {
-        _tprintf(TEXT("WriteFile to pipe failed. GLE=%d\n"), GetLastError());
-        return -1;
+        if (!m_Pipe)
+            return std::vector<char>();
+
+        bool fSuccess = false;
+        do
+        {
+            // Read from the pipe. 
+            DWORD cbRead;
+            fSuccess = ReadFile(
+                m_Pipe,    // pipe handle 
+                m_receiveBuffer.data(),    // buffer to receive reply 
+                sizeof(char) * m_receiveBuffer.size(),  // size of buffer 
+                &cbRead,  // number of bytes read 
+                nullptr);    // not overlapped 
+
+            if (!fSuccess && GetLastError() != ERROR_MORE_DATA)
+                break;
+
+        } while (!fSuccess);  // repeat loop if ERROR_MORE_DATA 
+
+        if (!fSuccess)
+        {
+            std::cerr << "ReadFile from pipe failed. GLE=%" << "\n";
+            return m_receiveBuffer;
+        }
+        return m_receiveBuffer;
     }
 
-    printf("\nMessage sent to server, receiving reply as follows:\n");
-
-    do
+    std::vector<char> SendAndReceive(const std::vector<char>& buffer)
     {
-        // Read from the pipe. 
-
-        fSuccess = ReadFile(
-            hPipe,    // pipe handle 
-            chBuf,    // buffer to receive reply 
-            BUFSIZE * sizeof(TCHAR),  // size of buffer 
-            &cbRead,  // number of bytes read 
-            NULL);    // not overlapped 
-
-        if (!fSuccess && GetLastError() != ERROR_MORE_DATA)
-            break;
-
-        _tprintf(TEXT("\"%s\"\n"), chBuf);
-    } while (!fSuccess);  // repeat loop if ERROR_MORE_DATA 
-
-    if (!fSuccess)
-    {
-        _tprintf(TEXT("ReadFile from pipe failed. GLE=%d\n"), GetLastError());
-        return -1;
+        Send(buffer);
+        return Receive();
     }
+};
 
-    printf("\n<End of message, press ENTER to terminate connection and exit>");
-    _getch();
+int main(int argc, TCHAR* argv[])
+{
+    ClientConnection connection;
+    
+    if (connection.ConnectToServer() == false)
+        return 1;    
 
-    CloseHandle(hPipe);
+    std::string tmpStr = "Test message from client.";
+    std::vector<char> inputBuffer(tmpStr.begin(), tmpStr.end());
+    std::vector<char> reply = connection.SendAndReceive(inputBuffer);
+    std::cout << reply.data() << "\n";
+
+    tmpStr = "Second test message from client.";
+    inputBuffer = std::vector<char>(tmpStr.begin(), tmpStr.end());
+    reply = connection.SendAndReceive(inputBuffer);
+    std::cout << reply.data() << "\n";
 
     return 0;
 }
