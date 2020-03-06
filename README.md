@@ -9,3 +9,8 @@ Download and install JsonCpp using the [vcpkg](https://github.com/Microsoft/vcpk
     ./bootstrap-vcpkg.sh
     ./vcpkg integrate install
     vcpkg install jsoncpp
+	
+### Protocolbuffer usage
+Generating classes for C++
+
+    .\protoc.exe --cpp_out=. game.proto
