@@ -3,25 +3,27 @@
 #include <vector>
 #include <string>
 
-#define BUFSIZE 512
-
 class ClientConnection 
 {
 private:
     HANDLE m_Pipe = nullptr;
     std::wstring m_PipeName;
     DWORD m_PipeMode = PIPE_READMODE_MESSAGE;     // TODO remove
-    std::vector<char> m_receiveBuffer;
+    std::vector<char> m_ReceiveBuffer;
+    static const size_t m_BufSize = 512;
+
+    ClientConnection(const ClientConnection&);
+    void operator=(const ClientConnection&);
 
 public:
     ClientConnection(std::wstring pipeName = L"\\\\.\\pipe\\mynamedpipe"): m_PipeName(pipeName)
     {
-        m_receiveBuffer.resize(BUFSIZE);
+        m_ReceiveBuffer.resize(m_BufSize);
     };
 
     ~ClientConnection()
     {
-        if(m_Pipe)
+        if(Connected())
             CloseHandle(m_Pipe);
     }
 
@@ -76,6 +78,11 @@ public:
         return true;
     }
 
+    bool Connected()
+    {
+        return m_Pipe != nullptr;
+    }
+
     bool Send(const std::vector<char>& buffer)
     {
         if (!m_Pipe)
@@ -93,6 +100,7 @@ public:
             std::cerr<< "WriteFile to pipe failed. GLE=%d" << "\n";
             return false;
         }
+
         return true;
     }
 
@@ -108,8 +116,8 @@ public:
             DWORD cbRead;
             fSuccess = ReadFile(
                 m_Pipe,    // pipe handle 
-                m_receiveBuffer.data(),    // buffer to receive reply 
-                sizeof(char) * m_receiveBuffer.size(),  // size of buffer 
+                m_ReceiveBuffer.data(),    // buffer to receive reply 
+                sizeof(char) * m_ReceiveBuffer.size(),  // size of buffer 
                 &cbRead,  // number of bytes read 
                 nullptr);    // not overlapped 
 
@@ -121,9 +129,9 @@ public:
         if (!fSuccess)
         {
             std::cerr << "ReadFile from pipe failed. GLE=%" << "\n";
-            return m_receiveBuffer;
+            return m_ReceiveBuffer;
         }
-        return m_receiveBuffer;
+        return m_ReceiveBuffer;
     }
 
     std::vector<char> SendAndReceive(const std::vector<char>& buffer)
