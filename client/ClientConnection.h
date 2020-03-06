@@ -94,7 +94,7 @@ public:
         if (!WriteFile(
             m_Pipe,                  // pipe handle 
             buffer.data(),             // message 
-            (buffer.size()) * sizeof(char),// message length 
+            (DWORD)(buffer.size()) * sizeof(char),// message length 
             &writtenBytes,             // bytes written 
             nullptr)                  // not overlapped 
             )
@@ -119,7 +119,7 @@ public:
             success = ReadFile(
                 m_Pipe,    // pipe handle 
                 m_ReceiveBuffer.data(),    // buffer to receive reply 
-                sizeof(char) * m_ReceiveBuffer.size(),  // size of buffer 
+                (DWORD)m_ReceiveBuffer.size() * sizeof(char),  // size of buffer 
                 &readBytes,  // number of bytes read 
                 nullptr);    // not overlapped 
 
