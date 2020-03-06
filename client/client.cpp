@@ -2,6 +2,7 @@
 #include <windows.h> 
 #include <vector>
 #include <string>
+#include <json/json.h>
 
 class ClientConnection 
 {
@@ -88,12 +89,12 @@ public:
         if (!m_Pipe)
             return false;
 
-        DWORD cbWritten;
+        DWORD writtenBytes;
         if(!WriteFile(
             m_Pipe,                  // pipe handle 
             buffer.data(),             // message 
             (buffer.size()) * sizeof(char),// message length 
-            &cbWritten,             // bytes written 
+            &writtenBytes,             // bytes written 
             nullptr)                  // not overlapped 
         )
         {
@@ -109,24 +110,24 @@ public:
         if (!m_Pipe)
             return std::vector<char>();
 
-        bool fSuccess = false;
+        bool success = false;
         do
         {
             // Read from the pipe. 
             DWORD cbRead;
-            fSuccess = ReadFile(
+            success = ReadFile(
                 m_Pipe,    // pipe handle 
                 m_ReceiveBuffer.data(),    // buffer to receive reply 
                 sizeof(char) * m_ReceiveBuffer.size(),  // size of buffer 
                 &cbRead,  // number of bytes read 
                 nullptr);    // not overlapped 
 
-            if (!fSuccess && GetLastError() != ERROR_MORE_DATA)
+            if (!success && GetLastError() != ERROR_MORE_DATA)
                 break;
 
-        } while (!fSuccess);  // repeat loop if ERROR_MORE_DATA 
+        } while (!success);  // repeat loop if ERROR_MORE_DATA 
 
-        if (!fSuccess)
+        if (!success)
         {
             std::cerr << "ReadFile from pipe failed. GLE=%" << "\n";
             return m_ReceiveBuffer;
@@ -141,8 +142,27 @@ public:
     }
 };
 
+void JsonSample()
+{
+    Json::CharReaderBuilder builder;
+    Json::CharReader* reader = builder.newCharReader();
+
+    std::string input = R"({"Event": "Night of Chances", "Year": 2020})";
+    Json::Value output;
+    std::string errors;
+
+    if (!reader->parse(input.c_str(), input.c_str() + input.length(), &output, &errors)) {
+        return;
+    }
+    
+    std::cout << "Event: " << output["Event"].asString() << "\n";
+    std::cout << "Year:  " << output["Year"].asInt() << "\n";
+}
+
 int main(int argc, TCHAR* argv[])
 {
+    JsonSample();
+
     ClientConnection connection;
     
     if (connection.ConnectToServer() == false)
