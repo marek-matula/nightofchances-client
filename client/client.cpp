@@ -35,7 +35,7 @@ int main()
     std::string tmpStr = "Test message from client.";
     std::vector<char> inputBuffer(tmpStr.begin(), tmpStr.end());
     std::vector<char> reply = connection.SendAndReceive(inputBuffer);
-    std::cout << reply.data() << "\n";
+    std::cout << std::string(reply.data(), reply.size()) << "\n";
 
     return 0;
 }
